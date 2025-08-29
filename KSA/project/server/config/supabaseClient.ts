@@ -11,7 +11,7 @@ if (!supabaseUrl || !supabaseKey) {
 }
 
 // Create Supabase client
-const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Export for Node.js (CommonJS)
 module.exports = supabase;

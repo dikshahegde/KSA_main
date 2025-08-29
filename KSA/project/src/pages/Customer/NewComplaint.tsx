@@ -10,8 +10,8 @@ import Card from '../../components/UI/Card';
 import Input from '../../components/UI/Input';
 import Button from '../../components/UI/Button';
 import Select from '../../components/UI/Select';
-import { useComplaints } from '../../hooks/useComplaints';
 import { ComplaintFormData } from '../../types';
+import { supabase } from '../../config/supabaseClient'; // <-- added
 
 const schema = yup.object({
   title: yup.string().required('Title is required').min(10, 'Title must be at least 10 characters'),
@@ -38,7 +38,6 @@ const priorityOptions = [
 
 const NewComplaint: React.FC = () => {
   const navigate = useNavigate();
-  const { createComplaint } = useComplaints();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const {
@@ -51,26 +50,40 @@ const NewComplaint: React.FC = () => {
   });
 
   const description = watch('description');
+const onSubmit = async (data: ComplaintFormData) => {
+  try {
+    setIsSubmitting(true);
 
-  const onSubmit = async (data: ComplaintFormData) => {
-    try {
-      setIsSubmitting(true);
-      await createComplaint(data);
-      navigate('/customer/complaints');
-    } catch (error) {
-      // Error handled by useComplaints hook
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    // Get logged-in customer info (from localStorage or context)
+    const customer = JSON.parse(localStorage.getItem('user') || '{}');
+    if (!customer?.id) throw new Error('Customer not found');
+
+    // Insert complaint into Supabase
+    const { error } = await supabase.from('complaints').insert([
+      {
+        title: data.title,
+        description: data.description,
+        category: data.category,
+        priority: data.priority,
+        status: 'open',
+        customer_id: customer.id,
+      },
+    ]);
+
+    if (error) throw error;
+
+    navigate('/customer/complaints');
+  } catch (err: any) {
+    console.error(err.message);
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   return (
     <DashboardLayout title="Submit New Complaint">
       <div className="max-w-2xl mx-auto">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <Card>
             <div className="flex items-center mb-6">
               <div className="w-12 h-12 bg-gradient-to-r from-amber-400 to-orange-400 rounded-xl flex items-center justify-center mr-4">
@@ -126,9 +139,7 @@ const NewComplaint: React.FC = () => {
                       {errors.description.message}
                     </p>
                   )}
-                  <p className="text-sm text-gray-500 ml-auto">
-                    {description?.length || 0} characters
-                  </p>
+                  <p className="text-sm text-gray-500 ml-auto">{description?.length || 0} characters</p>
                 </div>
               </div>
 
@@ -148,19 +159,10 @@ const NewComplaint: React.FC = () => {
               </div>
 
               <div className="flex space-x-4">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => navigate('/customer')}
-                  className="flex-1"
-                >
+                <Button type="button" variant="secondary" onClick={() => navigate('/customer')} className="flex-1">
                   Cancel
                 </Button>
-                <Button
-                  type="submit"
-                  loading={isSubmitting}
-                  className="flex-1"
-                >
+                <Button type="submit" loading={isSubmitting} className="flex-1">
                   <Send className="w-5 h-5 mr-2" />
                   Submit Complaint
                 </Button>

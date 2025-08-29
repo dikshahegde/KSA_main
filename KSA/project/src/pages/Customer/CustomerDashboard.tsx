@@ -1,110 +1,94 @@
+// src/pages/Customer/CustomerDashboard.tsx
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, Plus, Clock, CheckCircle } from 'lucide-react';
 import DashboardLayout from '../../components/Layout/DashboardLayout';
 import Card from '../../components/UI/Card';
 import Button from '../../components/UI/Button';
 import { useComplaints } from '../../hooks/useComplaints';
-import { useAuth } from '../../context/AuthContext';
-import { Link } from 'react-router-dom';
+import Select from '../../components/UI/Select';
+import Badge from '../../components/UI/Badge';
+import { FileText, Calendar, Eye, Filter } from 'lucide-react';
+
+const statusOptions = [
+  { value: 'all', label: 'All Status' },
+  { value: 'open', label: 'Open' },
+  { value: 'in-progress', label: 'In Progress' },
+  { value: 'resolved', label: 'Resolved' },
+  { value: 'closed', label: 'Closed' }
+];
+
+const priorityOptions = [
+  { value: 'all', label: 'All Priority' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'urgent', label: 'Urgent' }
+];
 
 const CustomerDashboard: React.FC = () => {
-  const { user } = useAuth();
-  const { complaints, loading, loadComplaints } = useComplaints({ limit: 5 });
-  const [stats, setStats] = useState({
-    total: 0,
-    open: 0,
-    inProgress: 0,
-    resolved: 0
-  });
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [priorityFilter, setPriorityFilter] = useState('all');
+
+  const { complaints, loading, loadComplaints, total } = useComplaints({ autoLoad: false, pageSize: 5 });
 
   useEffect(() => {
-    loadComplaints();
-  }, []);
+    loadComplaints({
+      status: statusFilter === 'all' ? undefined : statusFilter,
+      priority: priorityFilter === 'all' ? undefined : priorityFilter,
+      page: 1
+    });
+  }, [statusFilter, priorityFilter]);
 
-  useEffect(() => {
-    if (complaints) {
-      setStats({
-        total: complaints.length,
-        open: complaints.filter(c => c.status === 'open').length,
-        inProgress: complaints.filter(c => c.status === 'in-progress').length,
-        resolved: complaints.filter(c => c.status === 'resolved' || c.status === 'closed').length
-      });
+  const getStatusBadgeVariant = (status: string) => {
+    switch (status) {
+      case 'open': return 'warning';
+      case 'in-progress': return 'info';
+      case 'resolved': return 'success';
+      case 'closed': return 'default';
+      default: return 'default';
     }
-  }, [complaints]);
+  };
 
-  const statsCards = [
-    { title: 'Total Complaints', value: stats.total, icon: FileText, color: 'from-blue-400 to-blue-500' },
-    { title: 'Open', value: stats.open, icon: Clock, color: 'from-orange-400 to-orange-500' },
-    { title: 'In Progress', value: stats.inProgress, icon: Clock, color: 'from-yellow-400 to-yellow-500' },
-    { title: 'Resolved', value: stats.resolved, icon: CheckCircle, color: 'from-green-400 to-green-500' }
-  ];
+  const getPriorityBadgeVariant = (priority: string) => {
+    switch (priority) {
+      case 'low': return 'default';
+      case 'medium': return 'info';
+      case 'high': return 'warning';
+      case 'urgent': return 'danger';
+      default: return 'default';
+    }
+  };
 
   return (
-    <DashboardLayout title={`Welcome back, ${user?.name}!`}>
-      {/* Quick Actions */}
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mb-8"
-      >
-        <Card className="bg-gradient-to-r from-amber-400 to-orange-400 text-white">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-bold mb-2">Need Help?</h2>
-              <p className="text-amber-100 mb-4">Submit a new complaint and we'll help you resolve it quickly.</p>
-              <Link to="/customer/new-complaint">
-                <Button variant="secondary" className="bg-white/20 text-white border-white/30 hover:bg-white/30">
-                  <Plus className="w-5 h-5 mr-2" />
-                  New Complaint
-                </Button>
-              </Link>
+    <DashboardLayout title="My Complaints">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center">
+              <Filter className="w-5 h-5 text-gray-600 mr-2" />
+              <h3 className="font-semibold text-gray-800">Filters</h3>
             </div>
-            <Plus className="w-24 h-24 text-white/20" />
+            <p className="text-sm text-gray-600">{total} complaints found</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Select
+              label="Status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              options={statusOptions}
+            />
+            <Select
+              label="Priority"
+              value={priorityFilter}
+              onChange={(e) => setPriorityFilter(e.target.value)}
+              options={priorityOptions}
+            />
           </div>
         </Card>
       </motion.div>
 
-      {/* Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {statsCards.map((stat, index) => (
-          <motion.div
-            key={stat.title}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1 }}
-          >
-            <Card hover>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-gray-600 text-sm font-medium">{stat.title}</p>
-                  <p className="text-3xl font-bold text-gray-800 mt-1">{stat.value}</p>
-                </div>
-                <div className={`w-12 h-12 bg-gradient-to-r ${stat.color} rounded-xl flex items-center justify-center`}>
-                  <stat.icon className="w-6 h-6 text-white" />
-                </div>
-              </div>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
-
-      {/* Recent Complaints */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-      >
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
         <Card>
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-gray-800">Recent Complaints</h2>
-            <Link to="/customer/complaints">
-              <Button variant="secondary" className="text-sm">
-                View All
-              </Button>
-            </Link>
-          </div>
-
           {loading ? (
             <div className="text-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-amber-400 mx-auto"></div>
@@ -112,42 +96,64 @@ const CustomerDashboard: React.FC = () => {
             </div>
           ) : complaints.length > 0 ? (
             <div className="space-y-4">
-              {complaints.slice(0, 5).map((complaint) => (
-                <div key={complaint._id} className="border border-gray-200 rounded-xl p-4 hover:shadow-md transition-shadow">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-semibold text-gray-800">{complaint.title}</h3>
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                      complaint.status === 'open' ? 'bg-orange-100 text-orange-800' :
-                      complaint.status === 'in-progress' ? 'bg-yellow-100 text-yellow-800' :
-                      complaint.status === 'resolved' ? 'bg-green-100 text-green-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {complaint.status.replace('-', ' ')}
-                    </span>
+              {complaints.map((complaint) => (
+                <motion.div
+                  key={complaint.id} 
+                   
+                   
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="border border-gray-200 rounded-xl p-6 hover:shadow-md transition-all duration-200"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-gray-800 mb-2">{complaint.title}</h3>
+                      <p className="text-gray-600 mb-3">
+                        {complaint.description.length > 150
+                          ? `${complaint.description.substring(0, 150)}...`
+                          : complaint.description
+                        }
+                      </p>
+                      <div className="flex items-center space-x-4 text-sm text-gray-500">
+                        <div className="flex items-center">
+                          <Calendar className="w-4 h-4 mr-1" />
+                          {new Date(complaint.created_at).toLocaleDateString()} {/* ✅ fixed createdAt → created_at */}
+                        </div>
+                        <span>Category: {complaint.category}</span>
+                       
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end space-y-2 ml-4">
+                      <div className="flex space-x-2">
+                        <Badge variant={getStatusBadgeVariant(complaint.status)}>
+                          {complaint.status.replace('-', ' ')}
+                        </Badge>
+                        <Badge variant={getPriorityBadgeVariant(complaint.priority)}>
+                          {complaint.priority}
+                        </Badge>
+                      </div>
+                      <Button variant="secondary" className="text-sm">
+                        <Eye className="w-4 h-4 mr-1" />
+                        View Details
+                      </Button>
+                    </div>
                   </div>
-                  <p className="text-gray-600 text-sm mb-2">
-                    {complaint.description.length > 100 
-                      ? `${complaint.description.substring(0, 100)}...`
-                      : complaint.description
-                    }
-                  </p>
-                  <div className="flex items-center justify-between text-sm text-gray-500">
-                    <span>Category: {complaint.category}</span>
-                    <span>{new Date(complaint.createdAt).toLocaleDateString()}</span>
-                  </div>
-                </div>
+                </motion.div>
               ))}
             </div>
           ) : (
-            <div className="text-center py-8">
+            <div className="text-center py-12">
               <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-600 mb-4">No complaints yet</p>
-              <Link to="/customer/new-complaint">
-                <Button>
-                  <Plus className="w-5 h-5 mr-2" />
-                  Submit Your First Complaint
-                </Button>
-              </Link>
+              <h3 className="text-lg font-semibold text-gray-600 mb-2">No complaints found</h3>
+              <p className="text-gray-500 mb-6">
+                {statusFilter !== 'all' || priorityFilter !== 'all'
+                  ? 'Try adjusting your filters to see more results'
+                  : 'You haven\'t submitted any complaints yet'
+                }
+              </p>
+              <Button onClick={() => window.location.href = '/customer/new-complaint'}>
+                Submit New Complaint
+              </Button>
             </div>
           )}
         </Card>

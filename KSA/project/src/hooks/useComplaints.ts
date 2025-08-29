@@ -1,100 +1,94 @@
-import { useState, useEffect } from 'react';
-import { complaintsAPI } from '../services/api';
-import { Complaint } from '../types';
-import toast from 'react-hot-toast';
+// src/hooks/useComplaints.ts
+import { useState, useEffect } from "react";
 
-interface UseComplaintsOptions {
-  page?: number;
-  limit?: number;
-  status?: string;
-  priority?: string;
-  autoLoad?: boolean;
+export interface Complaint {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  priority: string;
+  status: string;
+  created_at: string;
+  resolved_at?: string | null;
+  details?: string | null;
+  technician?: { id: string; name: string } | null;
+  customer?: { id: string; name: string; email: string } | null;
 }
 
-export const useComplaints = (options: UseComplaintsOptions = {}) => {
+interface UseComplaintsProps {
+  autoLoad?: boolean;
+  pageSize?: number;
+  customerId?: string; // optional: for customer mode
+}
+
+export const useComplaints = ({
+  autoLoad = true,
+  pageSize = 5,
+  customerId,
+}: UseComplaintsProps = {}) => {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(false);
-  const [totalPages, setTotalPages] = useState(0);
-  const [currentPage, setCurrentPage] = useState(options.page || 1);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
 
-  const loadComplaints = async (params?: UseComplaintsOptions) => {
+  const loadComplaints = async ({
+    status,
+    priority,
+    page = 1,
+    limit = pageSize,
+  }: {
+    status?: string;
+    priority?: string;
+    page?: number;
+    limit?: number;
+  } = {}) => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const response = await complaintsAPI.getAll({
-        page: params?.page || currentPage,
-        limit: params?.limit || options.limit || 10,
-        status: params?.status || options.status,
-        priority: params?.priority || options.priority,
+      const token = localStorage.getItem("token") || "";
+      if (!token) throw new Error("User not authenticated");
+
+      const params = new URLSearchParams();
+      params.append("page", page.toString());
+      params.append("limit", limit.toString());
+      if (status && status !== "all") params.append("status", status);
+      if (priority && priority !== "all") params.append("priority", priority);
+      if (customerId) params.append("customerId", customerId);
+
+      const res = await fetch(`http://localhost:5000/api/complaints?${params.toString()}`, {
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       });
-      
-      setComplaints(response.complaints);
-      setTotalPages(response.totalPages);
-      setCurrentPage(response.currentPage);
-      setTotal(response.total);
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to load complaints');
+
+      if (!res.ok) throw new Error("Failed to fetch complaints");
+      const data = await res.json();
+      setComplaints(data.complaints || []);
+      setTotal(data.total || 0);
+      setCurrentPage(data.currentPage || 1);
+      setTotalPages(data.totalPages || 1);
+    } catch (err) {
+      console.error("Load complaints error:", err);
+      setComplaints([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
   };
 
-  const createComplaint = async (data: {
-    title: string;
-    description: string;
-    category: string;
-    priority: string;
-  }) => {
-    try {
-      setLoading(true);
-      const response = await complaintsAPI.create(data);
-      toast.success('Complaint created successfully');
-      await loadComplaints();
-      return response;
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to create complaint');
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const updateComplaintStatus = async (id: string, status: string) => {
-    try {
-      await complaintsAPI.updateStatus(id, status);
-      toast.success('Status updated successfully');
-      await loadComplaints();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to update status');
-    }
-  };
-
-  const assignComplaint = async (id: string, technicianId: string) => {
-    try {
-      await complaintsAPI.assign(id, technicianId);
-      toast.success('Complaint assigned successfully');
-      await loadComplaints();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to assign complaint');
-    }
+  const updateComplaintStatus = async (id: string, status: string, details?: string) => {
+    await fetch(`http://localhost:5000/api/complaints/${id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+      },
+      body: JSON.stringify({ status, details }),
+    });
+    await loadComplaints({ page: currentPage });
   };
 
   useEffect(() => {
-    if (options.autoLoad !== false) {
-      loadComplaints();
-    }
+    if (autoLoad) loadComplaints();
   }, []);
 
-  return {
-    complaints,
-    loading,
-    totalPages,
-    currentPage,
-    total,
-    loadComplaints,
-    createComplaint,
-    updateComplaintStatus,
-    assignComplaint,
-    setCurrentPage
-  };
+  return { complaints, loading, loadComplaints, updateComplaintStatus, total, currentPage, totalPages };
 };

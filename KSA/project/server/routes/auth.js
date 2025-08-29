@@ -1,6 +1,5 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
 const supabase = require('../config/supabaseClient');
 const { auth } = require('../middleware/auth');
 
@@ -22,40 +21,40 @@ router.post('/register', async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    // Validate input
     if (!name || !email || !password) {
       return res.status(400).json({ message: 'Name, email, and password are required' });
     }
 
-    // Check if user already exists
-    const { data: existingUser } = await supabase
-      .from('users')
-      .select('id')
-      .eq('email', email)
-      .single();
+    // Sign up with Supabase Auth
+    const { data: authData, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { name, role: 'customer' } // store role and name in metadata
+      }
+    });
 
-    if (existingUser) {
-      return res.status(400).json({ message: 'User already exists with this email' });
+    if (signUpError) {
+      return res.status(400).json({ message: signUpError.message });
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Insert new user
-    const { data: newUser, error: insertError } = await supabase
-      .from('users')
-      .insert([{ name, email, password: hashedPassword, role: 'customer', isActive: true }])
+    // Insert user profile in 'profiles' table
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .insert([{ id: authData.user.id, name, email, role: 'customer' }])
       .select()
       .single();
 
-    if (insertError) throw insertError;
+    if (profileError) {
+      return res.status(500).json({ message: profileError.message });
+    }
 
-    const token = generateToken(newUser.id, newUser.role);
+    const token = generateToken(profile.id, profile.role);
 
     res.status(201).json({
       message: 'User registered successfully',
       token,
-      user: { id: newUser.id, name: newUser.name, email: newUser.email, role: newUser.role }
+      user: { id: profile.id, name: profile.name, email: profile.email, role: profile.role }
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -64,7 +63,7 @@ router.post('/register', async (req, res) => {
 });
 
 // ======================
-// Login user
+// Login user (merged admin + supabase)
 // ======================
 router.post('/login', async (req, res) => {
   try {
@@ -74,24 +73,43 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Email and password are required' });
     }
 
-    const { data: user } = await supabase
-      .from('users')
+    // 1️⃣ Built-in admin login
+    if (email === 'admin@platform.com' && password === 'Admin123') {
+      const token = generateToken('admin-1', 'admin');
+      return res.json({
+        message: 'Login successful',
+        token,
+        user: { id: 'admin-1', email, role: 'admin', name: 'Super Admin' }
+      });
+    }
+
+    // 2️⃣ Supabase login
+    const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
+
+    if (loginError || !loginData.user) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    // Fetch profile
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
       .select('*')
-      .eq('email', email)
+      .eq('id', loginData.user.id)
       .single();
 
-    if (!user) return res.status(401).json({ message: 'Invalid email or password' });
-    if (!user.isActive) return res.status(400).json({ message: 'Account is deactivated' });
+    if (profileError || !profile) {
+      return res.status(404).json({ message: 'User profile not found' });
+    }
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(401).json({ message: 'Invalid email or password' });
-
-    const token = generateToken(user.id, user.role);
+    const token = generateToken(profile.id, profile.role);
 
     res.json({
       message: 'Login successful',
       token,
-      user: { id: user.id, name: user.name, email: user.email, role: user.role }
+      user: { id: profile.id, name: profile.name, email: profile.email, role: profile.role }
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -104,16 +122,17 @@ router.post('/login', async (req, res) => {
 // ======================
 router.get('/me', auth, async (req, res) => {
   try {
-    const { data: user } = await supabase
-      .from('users')
+    const { data: profile, error } = await supabase
+      .from('profiles')
       .select('id, name, email, role')
       .eq('id', req.user.id)
       .single();
 
-    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (error || !profile) return res.status(404).json({ message: 'User not found' });
 
-    res.json({ user });
+    res.json({ user: profile });
   } catch (error) {
+    console.error('Fetch user error:', error);
     res.status(500).json({ message: error.message });
   }
 });

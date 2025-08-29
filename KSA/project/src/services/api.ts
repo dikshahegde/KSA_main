@@ -1,68 +1,64 @@
-import axios from 'axios';
-import { LoginFormData, RegisterFormData, User, Complaint, DashboardAnalytics, CreateUserFormData, ComplaintFormData } from '../types';
+const API_BASE = 'http://localhost:5000/api';
 
-const API_BASE_URL = 'http://localhost:5000/api';
-
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
-// Request interceptor to add auth token
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
-
-// Response interceptor for error handling
-api.interceptors.response.use(
-  (response) => response.data,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
-    }
-    return Promise.reject(error);
-  }
-);
-
-// Auth API
-export const authAPI = {
-  login: (data: LoginFormData) => api.post('/auth/login', data),
-  register: (data: RegisterFormData) => api.post('/auth/register', data),
-  me: () => api.get('/auth/me'),
+const authHeader = () => {
+  const token = localStorage.getItem('token');
+  return { Authorization: `Bearer ${token}` || '', 'Content-Type': 'application/json' };
 };
 
-// Users API
-export const usersAPI = {
-  create: (data: CreateUserFormData) => api.post('/users/create', data),
-  getAll: (params?: { page?: number; limit?: number; role?: string }) => api.get('/users', { params }),
-  getTechnicians: () => api.get('/users/technicians'),
-  toggleStatus: (id: string) => api.put(`/users/${id}/toggle-status`),
-};
-
-// Complaints API
 export const complaintsAPI = {
-  create: (data: ComplaintFormData) => api.post('/complaints', data),
-  getAll: (params?: { 
-    page?: number; 
-    limit?: number; 
-    status?: string; 
-    priority?: string;
-  }) => api.get('/complaints', { params }),
-  getById: (id: string) => api.get(`/complaints/${id}`),
-  assign: (id: string, technicianId: string) => api.put(`/complaints/${id}/assign`, { technicianId }),
-  updateStatus: (id: string, status: string) => api.put(`/complaints/${id}/status`, { status }),
-  addNote: (id: string, content: string) => api.post(`/complaints/${id}/notes`, { content }),
-  getAnalytics: (): Promise<DashboardAnalytics> => api.get('/complaints/analytics/dashboard'),
+  // Customer: submit complaint
+  create: async (data: { title: string; description: string; category: string; priority: string }) => {
+    const res = await fetch(`${API_BASE}/complaints`, {
+      method: 'POST',
+      headers: authHeader(),
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error('Failed to submit complaint');
+    return res.json();
+  },
+
+  // Admin: list all complaints
+  getAll: async (params: { status?: string; priority?: string; page?: number; limit?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.status && params.status !== 'all') qs.append('status', params.status);
+    if (params.priority && params.priority !== 'all') qs.append('priority', params.priority);
+    qs.append('page', String(params.page || 1));
+    qs.append('limit', String(params.limit || 10));
+
+    const res = await fetch(`${API_BASE}/complaints/all?${qs.toString()}`, {
+      headers: authHeader(),
+    });
+    if (!res.ok) throw new Error('Failed to load complaints');
+    return res.json();
+  },
+
+  // Admin: assign technician
+  assign: async (complaintId: string, technicianId: string) => {
+    const res = await fetch(`${API_BASE}/complaints/${complaintId}/assign`, {
+      method: 'PUT',
+      headers: authHeader(),
+      body: JSON.stringify({ technicianId }),
+    });
+    if (!res.ok) throw new Error('Failed to assign complaint');
+    return res.json();
+  },
+
+  // Admin: update status + details
+  updateComplaintStatus: async (complaintId: string, status: string, details?: string) => {
+    const res = await fetch(`${API_BASE}/complaints/${complaintId}`, {
+      method: 'PUT',
+      headers: authHeader(),
+      body: JSON.stringify({ status, details }),
+    });
+    if (!res.ok) throw new Error('Failed to update complaint');
+    return res.json();
+  },
 };
 
-export default api;
+export const usersAPI = {
+  getTechnicians: async () => {
+    const res = await fetch(`${API_BASE}/users/technicians`, { headers: authHeader() });
+    if (!res.ok) throw new Error('Failed to load technicians');
+    return res.json();
+  },
+};
