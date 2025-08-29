@@ -1,201 +1,165 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { FileText, Users, Clock, CheckCircle, AlertTriangle, TrendingUp } from 'lucide-react';
+import {
+  FileText, Clock, CheckCircle, AlertTriangle
+} from 'lucide-react';
 import DashboardLayout from '../../components/Layout/DashboardLayout';
 import Card from '../../components/UI/Card';
-import { complaintsAPI } from '../../services/api';
-import { DashboardAnalytics } from '../../types';
+import Badge from '../../components/UI/Badge';
+import Button from '../../components/UI/Button';
+import Select from '../../components/UI/Select';
+import { supabase } from '../../config/supabaseClient';
 import toast from 'react-hot-toast';
 
-const COLORS = ['#FBA600', '#F97316', '#EF4444', '#10B981'];
+const statusOptions = [
+  { value: 'open', label: 'Open' },
+  { value: 'in-progress', label: 'In Progress' },
+  { value: 'resolved', label: 'Resolved' },
+  { value: 'closed', label: 'Closed' }
+];
+
+const priorityOptions = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'urgent', label: 'Urgent' }
+];
 
 const AdminDashboard: React.FC = () => {
-  const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
+  const [complaints, setComplaints] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [priorityFilter, setPriorityFilter] = useState('all');
+  const [details, setDetails] = useState<Record<string, string>>({});
+
+  const loadComplaints = async () => {
+    setLoading(true);
+    let query = supabase.from('complaints').select('*, customer:profiles(*)');
+
+    if (statusFilter !== 'all') query = query.eq('status', statusFilter);
+    if (priorityFilter !== 'all') query = query.eq('priority', priorityFilter);
+
+    const { data, error } = await query.order('created_at', { ascending: false });
+    if (error) console.error(error);
+    else setComplaints(data || []);
+    setLoading(false);
+  };
 
   useEffect(() => {
-    const loadAnalytics = async () => {
-      try {
-        const data = await complaintsAPI.getAnalytics();
-        setAnalytics(data);
-      } catch (error: any) {
-        toast.error('Failed to load analytics');
-      } finally {
-        setLoading(false);
-      }
-    };
+    loadComplaints();
+  }, [statusFilter, priorityFilter]);
 
-    loadAnalytics();
+  // Realtime updates
+  useEffect(() => {
+    const channel = supabase
+      .channel('public:complaints')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'complaints' }, () => {
+        loadComplaints();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
-  if (loading) {
-    return (
-      <DashboardLayout title="Admin Dashboard">
-        <div className="text-center py-8">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-amber-400 mx-auto"></div>
-          <p className="text-gray-600 mt-4">Loading analytics...</p>
-        </div>
-      </DashboardLayout>
-    );
-  }
+  const handleUpdate = async (complaintId: string, newStatus: string) => {
+    try {
+      const { error } = await supabase
+        .from('complaints')
+        .update({
+          status: newStatus,
+          remarks: details[complaintId] || ''
+        })
+        .eq('id', complaintId);
 
-  if (!analytics) {
-    return (
-      <DashboardLayout title="Admin Dashboard">
-        <div className="text-center py-8">
-          <p className="text-gray-600">Failed to load analytics data</p>
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  const statsCards = [
-    { 
-      title: 'Total Complaints', 
-      value: analytics.overview.totalComplaints, 
-      icon: FileText, 
-      color: 'from-blue-400 to-blue-500',
-      change: '+12%'
-    },
-    { 
-      title: 'Open Cases', 
-      value: analytics.overview.openComplaints, 
-      icon: Clock, 
-      color: 'from-orange-400 to-orange-500',
-      change: '-5%'
-    },
-    { 
-      title: 'In Progress', 
-      value: analytics.overview.inProgressComplaints, 
-      icon: AlertTriangle, 
-      color: 'from-yellow-400 to-yellow-500',
-      change: '+8%'
-    },
-    { 
-      title: 'Resolved', 
-      value: analytics.overview.resolvedComplaints, 
-      icon: CheckCircle, 
-      color: 'from-green-400 to-green-500',
-      change: '+15%'
+      if (error) throw error;
+      toast.success('Complaint updated');
+      loadComplaints();
+    } catch {
+      toast.error('Update failed');
     }
-  ];
+  };
 
-  const categoryData = analytics.complaintsByCategory.map(item => ({
-    name: item._id,
-    value: item.count
-  }));
+  const getStatusBadgeVariant = (status: string) => {
+    switch (status) {
+      case 'open': return 'warning';
+      case 'in-progress': return 'info';
+      case 'resolved': return 'success';
+      case 'closed': return 'default';
+      default: return 'default';
+    }
+  };
 
-  const priorityData = analytics.complaintsByPriority.map(item => ({
-    name: item._id,
-    value: item.count
-  }));
-
-  const monthlyData = analytics.monthlyTrend.map(item => ({
-    month: `${item._id.year}-${item._id.month.toString().padStart(2, '0')}`,
-    complaints: item.count
-  }));
+  const getPriorityBadgeVariant = (priority: string) => {
+    switch (priority) {
+      case 'low': return 'default';
+      case 'medium': return 'info';
+      case 'high': return 'warning';
+      case 'urgent': return 'danger';
+      default: return 'default';
+    }
+  };
 
   return (
     <DashboardLayout title="Admin Dashboard">
-      {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {statsCards.map((stat, index) => (
-          <motion.div
-            key={stat.title}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1 }}
-          >
-            <Card hover>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-gray-600 text-sm font-medium">{stat.title}</p>
-                  <p className="text-3xl font-bold text-gray-800 mt-1">{stat.value}</p>
-                  <div className="flex items-center mt-2">
-                    <TrendingUp className="w-4 h-4 text-green-500 mr-1" />
-                    <span className="text-sm text-green-600">{stat.change}</span>
+      {/* Filters */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <Select label="Status" value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} options={[{ value: 'all', label: 'All' }, ...statusOptions]} />
+        <Select label="Priority" value={priorityFilter} onChange={(e: any) => setPriorityFilter(e.target.value)} options={[{ value: 'all', label: 'All' }, ...priorityOptions]} />
+      </div>
+
+      {/* Complaints List */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+        <Card>
+          {loading ? (
+            <div className="text-center py-8">Loading...</div>
+          ) : complaints.length > 0 ? (
+            <div className="space-y-4">
+              {complaints.map((c) => (
+                <div key={c.id} className="border rounded-xl p-4 hover:shadow-md transition-shadow">
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <h3 className="font-semibold text-gray-800">{c.title}</h3>
+                      <p className="text-gray-600 text-sm">{c.description}</p>
+                      <div className="flex space-x-2 text-xs text-gray-500 mt-1">
+                        <span>Customer: {c.customer?.name}</span>
+                        <span>Category: {c.category}</span>
+                        <span>{new Date(c.created_at).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col space-y-1 ml-4">
+                      <Badge variant={getStatusBadgeVariant(c.status)}>{c.status}</Badge>
+                      <Badge variant={getPriorityBadgeVariant(c.priority)}>{c.priority}</Badge>
+                    </div>
+                  </div>
+
+                  {/* Update Section */}
+                  <div className="space-y-2 mt-3">
+                    <Select
+                      label="Change Status"
+                      value={c.status}
+                      onChange={(e) => handleUpdate(c.id, e.target.value)}
+                      options={statusOptions}
+                    />
+                    <textarea
+                      className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-amber-400"
+                      placeholder="Write details/remarks..."
+                      value={details[c.id] || c.remarks || ''}
+                      onChange={(e) => setDetails({ ...details, [c.id]: e.target.value })}
+                      rows={3}
+                    />
+                    <Button onClick={() => handleUpdate(c.id, c.status)}>Save</Button>
                   </div>
                 </div>
-                <div className={`w-12 h-12 bg-gradient-to-r ${stat.color} rounded-xl flex items-center justify-center`}>
-                  <stat.icon className="w-6 h-6 text-white" />
-                </div>
-              </div>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
-
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Complaints by Category */}
-        <motion.div
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.4 }}
-        >
-          <Card>
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Complaints by Category</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={categoryData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {categoryData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          </Card>
-        </motion.div>
-
-        {/* Complaints by Priority */}
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.5 }}
-        >
-          <Card>
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Complaints by Priority</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={priorityData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="value" fill="#F97316" />
-              </BarChart>
-            </ResponsiveContainer>
-          </Card>
-        </motion.div>
-      </div>
-
-      {/* Monthly Trend */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.6 }}
-      >
-        <Card>
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">Monthly Complaints Trend</h3>
-          <ResponsiveContainer width="100%" height={400}>
-            <BarChart data={monthlyData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="complaints" fill="#FBA600" />
-            </BarChart>
-          </ResponsiveContainer>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <p className="text-gray-600">No complaints found</p>
+            </div>
+          )}
         </Card>
       </motion.div>
     </DashboardLayout>

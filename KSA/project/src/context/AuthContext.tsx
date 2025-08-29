@@ -1,117 +1,131 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, AuthResponse } from '../types';
-import { authAPI } from '../services/api';
-import toast from 'react-hot-toast';
+// src/context/AuthContext.tsx
+import { createContext, useContext, useState, ReactNode, useEffect } from "react";
+import { supabase } from "../config/supabaseClient";
+import { User as SupabaseUser, Session } from "@supabase/supabase-js";
+
+interface UserType {
+  id: string;
+  email: string;
+  role: "customer" | "admin" | "technician";
+  name?: string;
+}
 
 interface AuthContextType {
-  user: User | null;
-  token: string | null;
-  login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string) => Promise<void>;
-  logout: () => void;
+  user: UserType | null;
   loading: boolean;
-  isAuthenticated: boolean;
+  register: (name: string, email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+// Create context
+const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
+// Helper: map Supabase user to our UserType
+const mapSupabaseUser = (supaUser: SupabaseUser): UserType => ({
+  id: supaUser.id,
+  email: supaUser.email ?? "",
+  role: "customer", // default, you can extend later
+  name: supaUser.user_metadata?.name ?? undefined,
+});
 
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const [user, setUser] = useState<UserType | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const isAuthenticated = Boolean(user && token);
-
   useEffect(() => {
+    let listener: ReturnType<typeof supabase.auth.onAuthStateChange> | null = null;
+
     const initAuth = async () => {
-      const savedToken = localStorage.getItem('token');
-      if (savedToken) {
-        try {
-          const response = await authAPI.me();
-          setUser(response.user);
-          setToken(savedToken);
-        } catch (error) {
-          localStorage.removeItem('token');
-          setToken(null);
-          setUser(null);
+      try {
+        // Get current session
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (session?.user) {
+          setUser(mapSupabaseUser(session.user));
         }
+
+        setLoading(false);
+
+        // Subscribe to auth changes
+        listener = supabase.auth.onAuthStateChange((_event, session) => {
+          if (session?.user) setUser(mapSupabaseUser(session.user));
+          else setUser(null);
+        });
+      } catch (err) {
+        console.error("Error initializing auth:", err);
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     initAuth();
+
+    // Cleanup
+    return () => {
+      if (listener && listener.data?.subscription) listener.data.subscription.unsubscribe();
+    };
   }, []);
 
-  const login = async (email: string, password: string) => {
-    try {
-      setLoading(true);
-      const response: AuthResponse = await authAPI.login({ email, password });
-      
-      localStorage.setItem('token', response.token);
-      setToken(response.token);
-      setUser(response.user);
-      
-      toast.success('Login successful!');
-    } catch (error: any) {
-      const message = error.response?.data?.message || 'Login failed';
-      toast.error(message);
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Register user via backend API
   const register = async (name: string, email: string, password: string) => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const response: AuthResponse = await authAPI.register({ name, email, password });
-      
-      localStorage.setItem('token', response.token);
-      setToken(response.token);
-      setUser(response.user);
-      
-      toast.success('Registration successful!');
-    } catch (error: any) {
-      const message = error.response?.data?.message || 'Registration failed';
-      toast.error(message);
-      throw error;
+      const res = await fetch("http://localhost:5000/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+
+      setUser(data.user);
+      localStorage.setItem("token", data.token);
+      localStorage.setItem("customer", JSON.stringify(data.user));
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Registration failed");
     } finally {
       setLoading(false);
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    setToken(null);
+  // Login user via backend API
+  const login = async (email: string, password: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch("http://localhost:5000/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+
+      setUser(data.user);
+      localStorage.setItem("token", data.token);
+      localStorage.setItem("customer", JSON.stringify(data.user));
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Logout
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
-    toast.success('Logged out successfully');
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
   };
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        token,
-        login,
-        register,
-        logout,
-        loading,
-        isAuthenticated
-      }}
-    >
+    <AuthContext.Provider value={{ user, loading, register, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
 };
+
+// Hook to use auth
+export const useAuth = () => useContext(AuthContext);

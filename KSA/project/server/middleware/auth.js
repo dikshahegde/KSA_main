@@ -1,24 +1,24 @@
+// middleware/auth.js
 const jwt = require('jsonwebtoken');
 const supabase = require('../config/supabaseClient');
 
 /**
  * Auth middleware
- * Checks if the user has a valid JWT and is active
+ * Verifies JWT and attaches user info to req.user
  */
 const auth = async (req, res, next) => {
   try {
-    // Get token from Authorization header
-    const token = req.headers.authorization?.split(' ')[1]; // Bearer <token>
-    if (!token) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ message: 'Access denied. No token provided.' });
     }
 
-    // Verify token using secret
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dummysecret');
 
-    // Look up user in Supabase
+    // Fetch user from Supabase
     const { data: user, error } = await supabase
-      .from('users')
+      .from('profiles') // use your table, e.g., 'users' or 'profiles'
       .select('*')
       .eq('id', decoded.id)
       .single();
@@ -27,23 +27,23 @@ const auth = async (req, res, next) => {
       return res.status(401).json({ message: 'Token is invalid or user not found.' });
     }
 
-    //  check if user is active (if you have an "isActive" column)
+    // Optional: check if user is active
     if (user.isActive === false) {
       return res.status(401).json({ message: 'User account is deactivated.' });
     }
 
-    // Attach user object to request so routes can use it
+    // Attach user object to request
     req.user = user;
     next();
-  } catch (error) {
-    console.error('Auth middleware error:', error);
+  } catch (err) {
+    console.error('Auth middleware error:', err);
     res.status(401).json({ message: 'Token is not valid.' });
   }
 };
 
 /**
  * Authorize middleware
- * Only allows access if user role matches one of the allowed roles
+ * Only allows access if user role matches allowed roles
  */
 const authorize = (...roles) => {
   return (req, res, next) => {

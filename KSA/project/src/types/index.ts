@@ -1,26 +1,4 @@
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: 'customer' | 'technician' | 'admin';
-  isActive?: boolean;
-  createdAt?: string;
-}
 
-export interface Complaint {
-  _id: string;
-  title: string;
-  description: string;
-  category: 'technical' | 'billing' | 'service' | 'general';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  status: 'open' | 'in-progress' | 'resolved' | 'closed';
-  assignedTo?: User;
-  createdBy: User;
-  resolvedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-  notes?: Note[];
-}
 
 export interface Note {
   _id: string;
@@ -88,3 +66,30 @@ export interface CreateUserFormData {
   password: string;
   role: 'technician' | 'admin';
 }
+
+export type User = {
+  id: string;
+  name: string;
+  email?: string;
+  role: 'customer' | 'admin';
+};
+
+export type Complaint = {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  priority: string;
+  status: 'open' | 'in-progress' | 'resolved' | 'closed';
+  remarks?: string;
+  created_at: string;
+  customer?: User;
+};
+
+export type Analytics = {
+  total: number;
+  open: number;
+  inProgress: number;
+  resolved: number;
+  urgent: number;
+};

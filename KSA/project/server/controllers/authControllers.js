@@ -4,41 +4,39 @@ const supabase = require('../config/supabaseClient');
 
 // Generate JWT token
 const generateToken = (id) => {
+  if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET not defined');
   return jwt.sign({ id }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRE || '7d',
   });
 };
 
-// @desc Register customer
+// Register user
 exports.register = async (req, res) => {
   try {
     const { name, email, password } = req.body;
+    if (!name || !email || !password) return res.status(400).json({ message: 'All fields required' });
 
-    // Check if user exists
-    const { data: existingUser, error: existingError } = await supabase
+    const { data: existingUser, error: existError } = await supabase
       .from('users')
       .select('id')
       .eq('email', email)
       .single();
 
-    if (existingUser) {
-      return res.status(400).json({ message: 'User already exists' });
+    if (existError && existError.code !== 'PGRST116') {
+      return res.status(500).json({ message: existError.message });
     }
 
-    // Hash password
+    if (existingUser) return res.status(400).json({ message: 'User already exists' });
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Insert user
     const { data: newUser, error: insertError } = await supabase
       .from('users')
       .insert([{ name, email, password: hashedPassword, role: 'customer' }])
       .select()
       .single();
 
-    if (insertError) {
-      console.error(insertError);
-      return res.status(500).json({ message: 'Failed to create user' });
-    }
+    if (insertError) return res.status(500).json({ message: insertError.message });
 
     const token = generateToken(newUser.id);
 
@@ -53,21 +51,20 @@ exports.register = async (req, res) => {
   }
 };
 
-// @desc Login
+// Login user
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ message: 'Email and password required' });
 
-    // Find user
     const { data: user, error } = await supabase
       .from('users')
       .select('*')
       .eq('email', email)
       .single();
 
-    if (!user) return res.status(400).json({ message: 'Invalid credentials' });
+    if (error || !user) return res.status(400).json({ message: 'Invalid credentials' });
 
-    // Compare passwords
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
 
@@ -84,18 +81,18 @@ exports.login = async (req, res) => {
   }
 };
 
-// @desc Get current user
+// Get current user
 exports.getMe = async (req, res) => {
   try {
-    const { id } = req.user; // from auth middleware
+    if (!req.user || !req.user.id) return res.status(401).json({ message: 'Unauthorized' });
 
     const { data: user, error } = await supabase
       .from('users')
       .select('id, name, email, role')
-      .eq('id', id)
+      .eq('id', req.user.id)
       .single();
 
-    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (error || !user) return res.status(404).json({ message: 'User not found' });
 
     res.json({ user });
   } catch (error) {

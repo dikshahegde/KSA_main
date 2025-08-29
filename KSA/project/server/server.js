@@ -1,3 +1,4 @@
+// server.js
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -5,12 +6,13 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
+// Supabase client
 const supabase = require('./config/supabaseClient');
 
 // Routes
-const auth = require('./routes/auth');
-const users = require('./routes/users');
-const complaints = require('./routes/complaints');
+const authRoutes = require('./routes/auth');
+const userRoutes = require('./routes/users');
+const complaintRoutes = require('./routes/complaints');
 
 const app = express();
 
@@ -31,7 +33,7 @@ app.use(morgan('combined'));
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
+  max: 100 // limit each IP to 100 requests per window
 });
 app.use(limiter);
 
@@ -42,9 +44,9 @@ app.use(express.urlencoded({ extended: true }));
 // ======================
 // Routes
 // ======================
-app.use('/api/auth', auth);
-app.use('/api/users', users);
-app.use('/api/complaints', complaints);
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/complaints', complaintRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
